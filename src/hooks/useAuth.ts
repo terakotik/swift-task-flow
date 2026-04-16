@@ -1,49 +1,74 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import type { User } from '@supabase/supabase-js';
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [roleLoading, setRoleLoading] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  const checkRole = async (u: User | null) => {
-    if (u) {
-      const { data } = await supabase.from('user_roles').select('role').eq('user_id', u.id);
-      setIsAdmin(data?.some(r => r.role === 'admin') ?? false);
-    } else {
-      setIsAdmin(false);
-    }
-  };
-
   useEffect(() => {
-    let mounted = true;
+    let active = true;
 
-    // Set up listener first
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_, session) => {
-      if (!mounted) return;
-      const u = session?.user ?? null;
-      setUser(u);
-      await checkRole(u);
-      setLoading(false);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!active) return;
+      setUser(session?.user ?? null);
+      setSessionReady(true);
     });
 
-    // Then get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!mounted) return;
-      const u = session?.user ?? null;
-      setUser(u);
-      await checkRole(u);
-      setLoading(false);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!active) return;
+      setUser(session?.user ?? null);
+      setSessionReady(true);
     });
 
     return () => {
-      mounted = false;
+      active = false;
       subscription.unsubscribe();
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    if (!sessionReady) return;
+
+    if (!user) {
+      setIsAdmin(false);
+      setRoleLoading(false);
+      return;
+    }
+
+    setRoleLoading(true);
+
+    supabase
+      .from('user_roles')
+      .select('role')
+      .eq('user_id', user.id)
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          setIsAdmin(false);
+          setRoleLoading(false);
+          return;
+        }
+
+        setIsAdmin(data?.some((row) => row.role === 'admin') ?? false);
+        setRoleLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [sessionReady, user?.id]);
+
   const signOut = () => supabase.auth.signOut();
 
-  return { user, loading, isAdmin, signOut };
+  return {
+    user,
+    loading: !sessionReady || (!!user && roleLoading),
+    isAdmin,
+    signOut,
+  };
 }
