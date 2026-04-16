@@ -64,8 +64,14 @@ export default function ExecutorDashboard({ demoMode = false, onExitDemo }: Prop
   }, [user, demoMode]);
 
   const loadTasks = async () => {
-    const { data } = await supabase.from('tasks').select('*').eq('status', 'available');
-    setTasks(data ?? []);
+    const now = new Date().toISOString();
+    const { data } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('status', 'available');
+    // Filter out expired tasks client-side
+    const active = (data ?? []).filter(t => !t.expires_at || t.expires_at > now);
+    setTasks(active);
   };
 
   const loadProfile = async () => {
