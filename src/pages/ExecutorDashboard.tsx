@@ -227,7 +227,7 @@ export default function ExecutorDashboard({ demoMode = false, onExitDemo }: Prop
           )}
         </div>
         {!demoMode && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 px-5 pb-4">
             <button
               onClick={() => setActiveTab('available')}
               className={`flex-1 py-2 rounded-xl text-xs font-black uppercase ${activeTab === 'available' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
