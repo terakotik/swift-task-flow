@@ -4,7 +4,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { LogOut, Plus, CheckCircle, Clock, Package, Archive, RotateCcw } from 'lucide-react';
+import { LogOut, Plus, CheckCircle, Clock, Package, Archive, RotateCcw, Users } from 'lucide-react';
 
 interface CompletedTask {
   id: string;
@@ -97,7 +97,8 @@ export default function AdminDashboard() {
   const [allTasks, setAllTasks] = useState<TaskInfo[]>([]);
   const [showAddTask, setShowAddTask] = useState(false);
   const [taskText, setTaskText] = useState('');
-  const [activeTab, setActiveTab] = useState<'pending' | 'done' | 'archive'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'done' | 'archive' | 'mytasks'>('pending');
+  const [taskExecutorCounts, setTaskExecutorCounts] = useState<Record<string, number>>({});
 
   // Timer selection state
   const [parsedTask, setParsedTask] = useState<ReturnType<typeof parseTaskText>>(null);
@@ -107,7 +108,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     loadCompletedTasks();
     loadAllTasks();
-    // Check expired tasks every 30s
+    loadExecutorCounts();
     const interval = setInterval(checkExpiredTasks, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -118,6 +119,14 @@ export default function AdminDashboard() {
       .select('id, task_id, name, status, expires_at, created_at')
       .order('created_at', { ascending: false });
     setAllTasks(data ?? []);
+  };
+
+  const loadExecutorCounts = async () => {
+    const { data } = await supabase.from('completed_tasks').select('task_id');
+    if (!data) return;
+    const counts: Record<string, number> = {};
+    data.forEach(d => { counts[d.task_id] = (counts[d.task_id] || 0) + 1; });
+    setTaskExecutorCounts(counts);
   };
 
   const checkExpiredTasks = async () => {
@@ -217,7 +226,19 @@ export default function AdminDashboard() {
     toast({ title: 'Задание восстановлено' });
   };
 
+  const archiveTask = async (taskId: string) => {
+    await supabase.from('tasks').update({ status: 'archived' }).eq('id', taskId);
+    loadAllTasks();
+    toast({ title: 'Задание заархивировано' });
+  };
+
   const archivedTasks = allTasks.filter(t => t.status === 'archived');
+  const activeTasks = allTasks.filter(t => t.status === 'available');
+
+  const splitName = (fullName: string) => {
+    const parts = fullName.split(' · ');
+    return { restaurant: parts[0], street: parts[1] || '' };
+  };
 
   const filtered = completedTasks.filter(ct =>
     activeTab === 'pending' ? ct.status !== 'done' : ct.status === 'done'
@@ -242,92 +263,120 @@ export default function AdminDashboard() {
             </button>
           </div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => setActiveTab('pending')}
-            className={`flex-1 py-2 rounded-xl text-xs font-black uppercase ${activeTab === 'pending' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-          >
-            На проверке
-          </button>
-          <button
-            onClick={() => setActiveTab('done')}
-            className={`flex-1 py-2 rounded-xl text-xs font-black uppercase ${activeTab === 'done' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-          >
-            Завершённые
-          </button>
-          <button
-            onClick={() => setActiveTab('archive')}
-            className={`flex-1 py-2 rounded-xl text-xs font-black uppercase ${activeTab === 'archive' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
-          >
-            Архив
-          </button>
+        <div className="flex gap-1.5">
+          {(['pending', 'done', 'mytasks', 'archive'] as const).map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase ${activeTab === tab ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground'}`}
+            >
+              {tab === 'pending' ? 'Заявки' : tab === 'done' ? 'Готовые' : tab === 'mytasks' ? 'Задания' : 'Архив'}
+            </button>
+          ))}
         </div>
       </header>
 
       <main className="p-4 space-y-3">
-        {activeTab === 'archive' ? (
+        {activeTab === 'mytasks' && (
+          <>
+            {activeTasks.length === 0 && (
+              <p className="text-center text-muted-foreground py-12">Нет активных заданий</p>
+            )}
+            {activeTasks.map(task => {
+              const { restaurant, street } = splitName(task.name);
+              const count = taskExecutorCounts[task.id] || 0;
+              return (
+                <div key={task.id} className="bg-card p-5 rounded-2xl border border-border shadow-sm space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-black text-foreground text-sm uppercase">{restaurant}</h3>
+                      {street && <p className="text-[10px] text-muted-foreground font-bold">{street}</p>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Users size={14} className="text-primary" />
+                      <span className="text-[10px] font-black text-primary">{count}</span>
+                    </div>
+                  </div>
+                  <Button onClick={() => archiveTask(task.id)} variant="outline" className="w-full font-bold text-xs gap-2">
+                    <Archive size={14} /> Архивировать
+                  </Button>
+                </div>
+              );
+            })}
+          </>
+        )}
+
+        {activeTab === 'archive' && (
           <>
             {archivedTasks.length === 0 && (
               <p className="text-center text-muted-foreground py-12">Архив пуст</p>
             )}
-            {archivedTasks.map(task => (
-              <div key={task.id} className="bg-card p-5 rounded-2xl border border-border shadow-sm space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="font-black text-foreground text-sm uppercase">{task.name}</h3>
-                    <p className="text-[9px] text-muted-foreground font-bold uppercase">ID: {task.task_id}</p>
+            {archivedTasks.map(task => {
+              const { restaurant, street } = splitName(task.name);
+              return (
+                <div key={task.id} className="bg-card p-5 rounded-2xl border border-border shadow-sm space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-black text-foreground text-sm uppercase">{restaurant}</h3>
+                      {street && <p className="text-[10px] text-muted-foreground font-bold">{street}</p>}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Archive size={14} className="text-muted-foreground" />
+                      <span className="text-[10px] font-black uppercase text-muted-foreground">Архив</span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <Archive size={14} className="text-muted-foreground" />
-                    <span className="text-[10px] font-black uppercase text-muted-foreground">Истекло</span>
-                  </div>
+                  <Button onClick={() => unarchiveTask(task.id)} variant="outline" className="w-full font-bold text-xs gap-2">
+                    <RotateCcw size={14} /> Восстановить
+                  </Button>
                 </div>
-                <Button onClick={() => unarchiveTask(task.id)} variant="outline" className="w-full font-bold text-xs gap-2">
-                  <RotateCcw size={14} /> Восстановить
-                </Button>
-              </div>
-            ))}
+              );
+            })}
           </>
-        ) : (
+        )}
+
+        {(activeTab === 'pending' || activeTab === 'done') && (
           <>
             {filtered.length === 0 && (
               <p className="text-center text-muted-foreground py-12">Пусто</p>
             )}
-            {filtered.map(ct => (
-              <div key={ct.id} className="bg-card p-5 rounded-2xl border border-border shadow-sm space-y-3">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="font-black text-foreground text-sm uppercase">{ct.tasks?.name ?? 'Задание'}</h3>
-                    <p className="text-[9px] text-muted-foreground font-bold uppercase">ID: {ct.tasks?.task_id}</p>
-                    <p className="text-[9px] text-muted-foreground font-bold">Исполнитель: {ct.executor_name ? ct.executor_name.split('@')[0] : 'N/A'}</p>
+            {filtered.map(ct => {
+              const { restaurant, street } = splitName(ct.tasks?.name ?? 'Задание');
+              return (
+                <div key={ct.id} className="bg-card p-5 rounded-2xl border border-border shadow-sm space-y-3">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-black text-foreground text-sm uppercase">{restaurant}</h3>
+                      {street && <p className="text-[10px] text-muted-foreground font-bold">{street}</p>}
+                      <p className="text-[9px] text-muted-foreground font-bold">Исполнитель: {ct.executor_name ? ct.executor_name.split('@')[0] : 'N/A'}</p>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {ct.status === 'pending' && <Clock size={14} className="text-warning" />}
+                      {ct.status === 'accepted' && <Package size={14} className="text-primary" />}
+                      {ct.status === 'done' && <CheckCircle size={14} className="text-accent" />}
+                      <span className="text-[10px] font-black uppercase text-muted-foreground">
+                        {ct.status === 'pending' ? 'Ожидает' : ct.status === 'accepted' ? 'Принят' : 'Готово'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    {ct.status === 'pending' && <Clock size={14} className="text-warning" />}
-                    {ct.status === 'accepted' && <Package size={14} className="text-primary" />}
-                    {ct.status === 'done' && <CheckCircle size={14} className="text-accent" />}
-                    <span className="text-[10px] font-black uppercase text-muted-foreground">
-                      {ct.status === 'pending' ? 'Ожидает' : ct.status === 'accepted' ? 'Принят' : 'Готово'}
-                    </span>
+                  <div className="bg-muted rounded-xl p-3">
+                    <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Номер заказа</p>
+                    <p className="text-foreground font-black text-lg">{ct.order_number}</p>
                   </div>
-                </div>
-                <div className="bg-muted rounded-xl p-3">
-                  <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest mb-1">Номер заказа</p>
-                  <p className="text-foreground font-black text-lg">{ct.order_number}</p>
-                </div>
-                {ct.status !== 'done' && (
-                  <div className="flex gap-2">
-                    {ct.status === 'pending' && (
-                      <Button onClick={() => acceptTask(ct.id)} variant="outline" className="flex-1 font-bold text-xs">
-                        Принял заказ
+                  {ct.status !== 'done' && (
+                    <div className="flex gap-2">
+                      {ct.status === 'pending' && (
+                        <Button onClick={() => acceptTask(ct.id)} variant="outline" className="flex-1 font-bold text-xs">
+                          Принял заказ
+                        </Button>
+                      )}
+                      <Button onClick={() => completeTask(ct)} className="flex-1 font-bold text-xs bg-accent text-accent-foreground hover:bg-accent/90">
+                        Готово ✓
                       </Button>
-                    )}
-                    <Button onClick={() => completeTask(ct)} className="flex-1 font-bold text-xs bg-accent text-accent-foreground hover:bg-accent/90">
-                      Готово ✓
-                    </Button>
-                  </div>
-                )}
-              </div>
-            ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </>
         )}
       </main>

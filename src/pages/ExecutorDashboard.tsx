@@ -161,7 +161,10 @@ export default function ExecutorDashboard({ demoMode = false, onExitDemo }: Prop
         </button>
         <div className="bg-card rounded-3xl p-6 shadow-sm border border-border space-y-6">
           <div>
-            <h2 className="text-xl font-black text-foreground">{currentTask.name}</h2>
+            {(() => { const parts = currentTask.name.split(' · '); return (<>
+              <h2 className="text-xl font-black text-foreground">{parts[0]}</h2>
+              {parts[1] && <p className="text-xs text-muted-foreground font-bold">{parts[1]}</p>}
+            </>); })()}
             <span className="text-[10px] bg-muted px-2 py-1 rounded text-muted-foreground font-black mt-2 inline-block uppercase tracking-wider break-all">
               ID: {currentTask.task_id}
             </span>
@@ -286,7 +289,8 @@ export default function ExecutorDashboard({ demoMode = false, onExitDemo }: Prop
                   onClick={() => setCurrentTask(task)}
                 >
                   <div className="flex-1 pr-4">
-                    <h3 className="font-black text-foreground text-sm truncate uppercase">{task.name}</h3>
+                    <h3 className="font-black text-foreground text-sm uppercase">{task.name.split(' · ')[0]}</h3>
+                    {task.name.includes(' · ') && <p className="text-[10px] text-muted-foreground font-bold">{task.name.split(' · ')[1]}</p>}
                     <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-tight break-all">ID: {task.task_id}</p>
                     {hasTimer && (
                       <TimerBadge expiresAt={task.expires_at!} />
