@@ -379,6 +379,7 @@ export default function AdminDashboard() {
             })}
           </>
         )}
+      </main>
 
       {/* Add Task Modal */}
       {showAddTask && (
