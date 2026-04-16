@@ -289,10 +289,8 @@ export default function ExecutorDashboard({ demoMode = false, onExitDemo }: Prop
                   onClick={() => setCurrentTask(task)}
                 >
                   <div className="flex-1 pr-4">
-                    {(() => { const parts = task.name.split(' · '); return (<>
-                      <span>{parts[0]}</span>
-                      {parts[1] && <span className="block text-[10px] text-muted-foreground font-bold normal-case">{parts[1]}</span>}
-                    </>); })()}
+                    <h3 className="font-black text-foreground text-sm uppercase">{task.name.split(' · ')[0]}</h3>
+                    {task.name.includes(' · ') && <p className="text-[10px] text-muted-foreground font-bold">{task.name.split(' · ')[1]}</p>}
                     <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-tight break-all">ID: {task.task_id}</p>
                     {hasTimer && (
                       <TimerBadge expiresAt={task.expires_at!} />
