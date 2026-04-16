@@ -97,7 +97,8 @@ export default function AdminDashboard() {
   const [allTasks, setAllTasks] = useState<TaskInfo[]>([]);
   const [showAddTask, setShowAddTask] = useState(false);
   const [taskText, setTaskText] = useState('');
-  const [activeTab, setActiveTab] = useState<'pending' | 'done' | 'archive'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'done' | 'archive' | 'mytasks'>('pending');
+  const [taskExecutorCounts, setTaskExecutorCounts] = useState<Record<string, number>>({});
 
   // Timer selection state
   const [parsedTask, setParsedTask] = useState<ReturnType<typeof parseTaskText>>(null);
@@ -107,7 +108,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     loadCompletedTasks();
     loadAllTasks();
-    // Check expired tasks every 30s
+    loadExecutorCounts();
     const interval = setInterval(checkExpiredTasks, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -118,6 +119,14 @@ export default function AdminDashboard() {
       .select('id, task_id, name, status, expires_at, created_at')
       .order('created_at', { ascending: false });
     setAllTasks(data ?? []);
+  };
+
+  const loadExecutorCounts = async () => {
+    const { data } = await supabase.from('completed_tasks').select('task_id');
+    if (!data) return;
+    const counts: Record<string, number> = {};
+    data.forEach(d => { counts[d.task_id] = (counts[d.task_id] || 0) + 1; });
+    setTaskExecutorCounts(counts);
   };
 
   const checkExpiredTasks = async () => {
@@ -217,7 +226,19 @@ export default function AdminDashboard() {
     toast({ title: 'Задание восстановлено' });
   };
 
+  const archiveTask = async (taskId: string) => {
+    await supabase.from('tasks').update({ status: 'archived' }).eq('id', taskId);
+    loadAllTasks();
+    toast({ title: 'Задание заархивировано' });
+  };
+
   const archivedTasks = allTasks.filter(t => t.status === 'archived');
+  const activeTasks = allTasks.filter(t => t.status === 'available');
+
+  const splitName = (fullName: string) => {
+    const parts = fullName.split(' · ');
+    return { restaurant: parts[0], street: parts[1] || '' };
+  };
 
   const filtered = completedTasks.filter(ct =>
     activeTab === 'pending' ? ct.status !== 'done' : ct.status === 'done'
