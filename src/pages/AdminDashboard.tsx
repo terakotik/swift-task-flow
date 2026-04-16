@@ -3,7 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/hooks/useAuth';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { LogOut, Plus, CheckCircle, Clock, Package } from 'lucide-react';
 
 interface CompletedTask {
@@ -14,15 +14,61 @@ interface CompletedTask {
   user_id: string;
   task_id: string;
   tasks: { task_id: string; name: string } | null;
-  profiles: { display_name: string | null } | null;
+}
+
+interface CompletedTaskWithProfile extends CompletedTask {
+  executor_name?: string;
+}
+
+function parseTaskText(text: string): { name: string; addr1: string; addr2: string; link: string; task_id: string } | null {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  
+  let addr1 = '';
+  let addr2 = '';
+  let link = '';
+  let name = '';
+
+  for (const line of lines) {
+    if (line.startsWith('http') && line.includes('eda.yandex')) {
+      if (!link) link = line;
+    } else if (line.startsWith('[') || line === 'Яндекс') {
+      continue;
+    } else if (!addr1) {
+      addr1 = line;
+    } else if (!addr2) {
+      addr2 = line;
+    }
+  }
+
+  if (!link || !addr1 || !addr2) return null;
+
+  // Extract restaurant name from link slug
+  const slugMatch = link.match(/placeSlug=([^&]+)/);
+  if (slugMatch) {
+    name = slugMatch[1].replace(/_/g, ' ').replace(/\s+[a-z0-9]+$/, '').toUpperCase();
+  } else {
+    const rMatch = link.match(/\/r\/([^?]+)/);
+    name = rMatch ? rMatch[1].replace(/_/g, ' ').toUpperCase() : 'Ресторан';
+  }
+
+  // Add street to name for branch identification
+  const streetMatch = addr1.match(/(?:улица|ул\.|переулок|проспект|бульвар|шоссе)\s+[^,]+/i) 
+    || addr1.match(/([^,]+)/);
+  if (streetMatch) {
+    name = name + ' · ' + streetMatch[0].trim();
+  }
+
+  const task_id = (slugMatch?.[1] || 'task') + '_' + Date.now();
+
+  return { name, addr1, addr2, link, task_id };
 }
 
 export default function AdminDashboard() {
   const { signOut } = useAuth();
   const { toast } = useToast();
-  const [completedTasks, setCompletedTasks] = useState<CompletedTask[]>([]);
+  const [completedTasks, setCompletedTasks] = useState<CompletedTaskWithProfile[]>([]);
   const [showAddTask, setShowAddTask] = useState(false);
-  const [newTask, setNewTask] = useState({ task_id: '', name: '', addr1: '', addr2: '', link: '', expires_at: '' });
+  const [taskText, setTaskText] = useState('');
   const [activeTab, setActiveTab] = useState<'pending' | 'done'>('pending');
 
   useEffect(() => {
@@ -32,9 +78,25 @@ export default function AdminDashboard() {
   const loadCompletedTasks = async () => {
     const { data } = await supabase
       .from('completed_tasks')
-      .select('*, tasks(task_id, name), profiles(display_name)')
+      .select('*, tasks(task_id, name)')
       .order('created_at', { ascending: false });
-    setCompletedTasks((data as any) ?? []);
+    
+    if (!data) { setCompletedTasks([]); return; }
+
+    // Fetch executor names separately
+    const userIds = [...new Set(data.map(d => d.user_id))];
+    const { data: profiles } = await supabase
+      .from('profiles')
+      .select('user_id, display_name')
+      .in('user_id', userIds);
+    
+    const profileMap = new Map(profiles?.map(p => [p.user_id, p.display_name]) ?? []);
+    
+    setCompletedTasks(data.map(ct => ({
+      ...ct,
+      tasks: ct.tasks as any,
+      executor_name: profileMap.get(ct.user_id) ?? undefined,
+    })));
   };
 
   const acceptTask = async (id: string) => {
@@ -43,10 +105,8 @@ export default function AdminDashboard() {
     toast({ title: 'Заказ принят' });
   };
 
-  const completeTask = async (ct: CompletedTask) => {
-    // Mark as done
+  const completeTask = async (ct: CompletedTaskWithProfile) => {
     await supabase.from('completed_tasks').update({ status: 'done', completed_at: new Date().toISOString() }).eq('id', ct.id);
-    // Credit 20 rubles
     const { data: profile } = await supabase.from('profiles').select('balance').eq('user_id', ct.user_id).single();
     if (profile) {
       await supabase.from('profiles').update({ balance: profile.balance + 20 }).eq('user_id', ct.user_id);
@@ -56,20 +116,23 @@ export default function AdminDashboard() {
   };
 
   const addTask = async () => {
-    if (!newTask.task_id || !newTask.name || !newTask.addr1 || !newTask.addr2 || !newTask.link) return;
+    const parsed = parseTaskText(taskText);
+    if (!parsed) {
+      toast({ title: 'Ошибка', description: 'Не удалось распознать задание. Вставьте текст с адресами и ссылкой.', variant: 'destructive' });
+      return;
+    }
     const { error } = await supabase.from('tasks').insert({
-      task_id: newTask.task_id,
-      name: newTask.name,
-      addr1: newTask.addr1,
-      addr2: newTask.addr2,
-      link: newTask.link,
-      expires_at: newTask.expires_at || null,
+      task_id: parsed.task_id,
+      name: parsed.name,
+      addr1: parsed.addr1,
+      addr2: parsed.addr2,
+      link: parsed.link,
     });
     if (error) {
       toast({ title: 'Ошибка', description: error.message, variant: 'destructive' });
       return;
     }
-    setNewTask({ task_id: '', name: '', addr1: '', addr2: '', link: '', expires_at: '' });
+    setTaskText('');
     setShowAddTask(false);
     toast({ title: 'Задание добавлено' });
   };
@@ -123,7 +186,7 @@ export default function AdminDashboard() {
               <div>
                 <h3 className="font-black text-foreground text-sm uppercase">{ct.tasks?.name ?? 'Задание'}</h3>
                 <p className="text-[9px] text-muted-foreground font-bold uppercase">ID: {ct.tasks?.task_id}</p>
-                <p className="text-[9px] text-muted-foreground font-bold">Исполнитель: {ct.profiles?.display_name ?? 'N/A'}</p>
+                <p className="text-[9px] text-muted-foreground font-bold">Исполнитель: {ct.executor_name ?? 'N/A'}</p>
               </div>
               <div className="flex items-center gap-1">
                 {ct.status === 'pending' && <Clock size={14} className="text-warning" />}
@@ -154,24 +217,22 @@ export default function AdminDashboard() {
         ))}
       </main>
 
-      {/* Add Task Modal */}
+      {/* Add Task Modal - Simple Textarea */}
       {showAddTask && (
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-foreground/60 backdrop-blur-sm" onClick={() => setShowAddTask(false)} />
           <div className="absolute bottom-0 left-0 right-0 bg-card rounded-t-[40px] p-8 pb-12 animate-in slide-in-from-bottom">
             <div className="w-12 h-1.5 bg-muted rounded-full mx-auto mb-6" />
-            <h2 className="text-xl font-black text-foreground mb-4">Добавить задание</h2>
-            <div className="space-y-3">
-              <Input placeholder="ID задания" value={newTask.task_id} onChange={e => setNewTask(p => ({ ...p, task_id: e.target.value }))} />
-              <Input placeholder="Название ресторана" value={newTask.name} onChange={e => setNewTask(p => ({ ...p, name: e.target.value }))} />
-              <Input placeholder="Адрес А (ресторан)" value={newTask.addr1} onChange={e => setNewTask(p => ({ ...p, addr1: e.target.value }))} />
-              <Input placeholder="Адрес Б (доставка)" value={newTask.addr2} onChange={e => setNewTask(p => ({ ...p, addr2: e.target.value }))} />
-              <Input placeholder="Ссылка на Яндекс Еду" value={newTask.link} onChange={e => setNewTask(p => ({ ...p, link: e.target.value }))} />
-              <Input type="datetime-local" placeholder="Истекает" value={newTask.expires_at} onChange={e => setNewTask(p => ({ ...p, expires_at: e.target.value }))} />
-              <Button onClick={addTask} className="w-full font-black uppercase bg-accent text-accent-foreground hover:bg-accent/90">
-                Добавить
-              </Button>
-            </div>
+            <h2 className="text-xl font-black text-foreground mb-4">Добавить задания</h2>
+            <Textarea
+              placeholder="Вставьте текст заданий..."
+              value={taskText}
+              onChange={e => setTaskText(e.target.value)}
+              className="min-h-[200px] mb-4 rounded-2xl"
+            />
+            <Button onClick={addTask} className="w-full font-black uppercase bg-accent text-accent-foreground hover:bg-accent/90 rounded-2xl h-14 text-base">
+              Добавить
+            </Button>
           </div>
         </div>
       )}
