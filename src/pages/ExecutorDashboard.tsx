@@ -276,15 +276,20 @@ export default function ExecutorDashboard({ demoMode = false, onExitDemo }: Prop
             {myCompleted.map(ct => {
               const s = statusLabel(ct.status);
               return (
-                <div key={ct.id} className="bg-card p-5 rounded-2xl border border-border shadow-sm space-y-2">
+                <div key={ct.id} className={`bg-card p-5 rounded-2xl border shadow-sm space-y-2 ${ct.status === 'done' ? 'border-accent/30' : 'border-border'}`}>
                   <div className="flex justify-between items-start">
-                    <div>
+                    <div className="flex-1 pr-3">
                       <h3 className="font-black text-foreground text-sm uppercase">{ct.tasks?.name ?? 'Задание'}</h3>
                       <p className="text-[9px] text-muted-foreground font-bold">Заказ: {ct.order_number}</p>
                     </div>
-                    <div className="flex items-center gap-1">
-                      {s.icon}
-                      <span className="text-[10px] font-black uppercase text-muted-foreground">{s.text}</span>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <div className="flex items-center gap-1">
+                        {s.icon}
+                        <span className={`text-[10px] font-black uppercase ${s.color}`}>{s.text}</span>
+                      </div>
+                      {ct.status === 'done' && (
+                        <span className="text-lg font-black text-accent">+20₽</span>
+                      )}
                     </div>
                   </div>
                 </div>
